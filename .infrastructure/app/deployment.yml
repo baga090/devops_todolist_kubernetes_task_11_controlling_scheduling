@@ -1,9 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: todoapp
-  namespace: todoapp
+  name: todoapp-deployment
+  namespace: mateapp
+  labels:
+    app: todolist
 spec:
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -11,83 +14,102 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app: todoapp
+      app: todolist
   template:
     metadata:
       labels:
-        app: todoapp
+        app: todolist
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - todoapp
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: todolist
+            topologyKey: kubernetes.io/hostname
       containers:
-      - name: todoapp
-        image: ikulyk404/todoapp:4.0.1
-        volumeMounts:
-        - name: data
-          mountPath: /app/data
-        - name: app-secrets-volume
-          mountPath: "/app/secrets"
-          readOnly: true
-        - name: app-config-volume
-          mountPath: "/app/configs"
-          readOnly: true
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "150m"
-          limits:
-            memory: "256Mi"
-            cpu: "150m"
+      - name: todoapp-container
+        image: baga56789/todoapp:5.0.0
+        ports:
+        - name: web-port
+          containerPort: 8000
         env:
+        - name: DJANGO_SETTINGS_MODULE
+          value: "todolist.settings"
         - name: PYTHONUNBUFFERED
           valueFrom:
             configMapKeyRef:
-              name: app-config
+              name: todoapp-configmap
               key: PYTHONUNBUFFERED
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
-              name: app-secret
+              name: todoapp-secret
               key: SECRET_KEY
         - name: DB_NAME
           valueFrom:
             secretKeyRef:
-              name: app-secret
-              key: DB_NAME
+              name: app-db-secret
+              key: NAME
         - name: DB_USER
           valueFrom:
             secretKeyRef:
-              name: app-secret
-              key: DB_USER
+              name: app-db-secret
+              key: USER
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: app-secret
-              key: DB_PASSWORD
+              name: app-db-secret
+              key: PASSWORD
         - name: DB_HOST
           valueFrom:
             secretKeyRef:
-              name: app-secret
-              key: DB_HOST
-        ports:
-        - containerPort: 8080
+              name: app-db-secret
+              key: HOST
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
         livenessProbe:
           httpGet:
-            path: api/health
-            port: 8080
-          initialDelaySeconds: 60
-          periodSeconds: 5
+            path: /api/liveness/
+            port: web-port
+          initialDelaySeconds: 5
+          periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: api/ready
-            port: 8080
+            path: /api/readiness/
+            port: web-port
           initialDelaySeconds: 5
-          periodSeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+        - name: config-volume
+          mountPath: /app/configs
+          readOnly: true
+        - name: secret-volume
+          mountPath: /app/secrets
+          readOnly: true
       volumes:
-      - name: data
+      - name: data-volume
         persistentVolumeClaim:
-          claimName: pvc-data
-      - name: app-secrets-volume
-        secret:
-          secretName: app-secret
-      - name: app-config-volume
+          claimName: todoapp-pvc
+      - name: config-volume
         configMap:
-          name: app-config
+          name: todoapp-configmap
+      - name: secret-volume
+        secret:
+          secretName: todoapp-secret
